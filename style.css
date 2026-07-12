@@ -1,0 +1,276 @@
+:root {
+  --bg: #f3efe7;
+  --text: #2b2621;
+  --text-soft: #6b6258;
+  --toolbar-bg: #ffffff;
+  --toolbar-border: #e3ddd0;
+  --btn-hover: #efe9dc;
+  --btn-active: #e2dac8;
+  --accent: #8a6d3b;
+  --shadow: 0 4px 18px rgba(40, 30, 15, 0.14);
+  --font-ui: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-editor: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --editor-font-size: 19px;
+}
+
+:root[data-theme="dark"] {
+  --bg: #1b1a17;
+  --text: #e9e4da;
+  --text-soft: #a39a8c;
+  --toolbar-bg: #2a2825;
+  --toolbar-border: #3c3833;
+  --btn-hover: #35322c;
+  --btn-active: #423e36;
+  --accent: #d4b483;
+  --shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+#editor-wrapper {
+  padding: 8vh 24px 40vh;
+  display: flex;
+  justify-content: center;
+}
+
+#editor {
+  width: 100%;
+  max-width: 70ch;
+  font-family: var(--font-editor);
+  font-size: var(--editor-font-size);
+  line-height: 1.8;
+  color: var(--text);
+  outline: none;
+}
+
+#editor p {
+  margin: 0 0 1em;
+  text-align: left;
+}
+
+#editor h1 {
+  font-size: 1.7em;
+  font-weight: 700;
+  text-align: left;
+  letter-spacing: 0.03em;
+  margin: 0.2em 0 0.9em;
+  color: var(--text);
+}
+
+#editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-soft);
+  pointer-events: none;
+}
+
+#editor b, #editor strong {
+  font-weight: 700;
+}
+
+#editor .wb-title {
+  font-size: 1.5em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Save indicator */
+#save-indicator {
+  position: fixed;
+  bottom: 14px;
+  left: 14px;
+  font-size: 12px;
+  color: var(--text-soft);
+  background: var(--toolbar-bg);
+  border: 1px solid var(--toolbar-border);
+  padding: 4px 10px;
+  border-radius: 20px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  z-index: 500;
+}
+
+#save-indicator.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Toolbar */
+#toolbar {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--toolbar-bg);
+  border: 1px solid var(--toolbar-border);
+  box-shadow: var(--shadow);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 1000;
+  user-select: none;
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.15s ease;
+}
+
+#toolbar.dragging {
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  transition: none;
+}
+
+#toolbar .sep {
+  width: 1px;
+  height: 22px;
+  background: var(--toolbar-border);
+  margin: 0 4px;
+  flex: none;
+}
+
+.zoom-group {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+}
+
+/* In a vertical toolbar, zoom-out must sit below zoom-in. */
+#toolbar.dock-left .zoom-group,
+#toolbar.dock-right .zoom-group {
+  flex-direction: column-reverse;
+}
+
+.format-group {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+}
+
+#toolbar.dock-left .format-group,
+#toolbar.dock-right .format-group {
+  flex-direction: column;
+}
+
+#toolbar .handle {
+  cursor: grab;
+  color: var(--text-soft);
+}
+
+#toolbar .handle:active {
+  cursor: grabbing;
+}
+
+#toolbar button {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+#toolbar button svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+
+#toolbar #icon-moon {
+  fill: currentColor;
+  stroke: none;
+}
+
+#toolbar button.icon-only {
+  padding: 8px;
+}
+
+#toolbar button:hover {
+  background: var(--btn-hover);
+}
+
+#toolbar button.active {
+  background: var(--btn-active);
+  color: var(--accent);
+}
+
+#toolbar button:active {
+  transform: scale(0.94);
+}
+
+#toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Docking orientations */
+#toolbar.dock-top {
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: row;
+}
+
+#toolbar.dock-bottom {
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: row;
+}
+
+#toolbar.dock-left {
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+}
+
+#toolbar.dock-right {
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+}
+
+#toolbar.dock-left .sep,
+#toolbar.dock-right .sep {
+  width: 22px;
+  height: 1px;
+  margin: 4px 0;
+}
+
+#toolbar.dock-left button,
+#toolbar.dock-right button {
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 6px;
+}
+
+#toolbar.dock-left button span,
+#toolbar.dock-right button span {
+  font-size: 10px;
+}
+
+@media (max-width: 640px) {
+  #editor { padding: 32px 22px; }
+  #editor-wrapper { padding: 6vh 10px 18vh; }
+  #toolbar span { display: none; }
+  #toolbar.dock-left, #toolbar.dock-right { padding: 6px 4px; }
+}
