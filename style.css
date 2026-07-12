@@ -119,12 +119,61 @@ html, body {
   padding: 6px;
   z-index: 1000;
   user-select: none;
+  overflow: hidden;
   transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.15s ease;
 }
 
 #toolbar.dragging {
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-  transition: none;
+}
+
+/* Enabled only while the collapse/expand drag animation is running, so it
+   never interferes with ordinary window-resize reflows. */
+#toolbar.size-anim {
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), height 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    padding 0.28s cubic-bezier(0.4, 0, 0.2, 1), gap 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.25s ease, border-color 0.25s ease, box-shadow 0.15s ease;
+}
+
+/* Collapsed to a small square holding just the drag handle while dragging. */
+#toolbar.collapsed {
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+}
+
+#toolbar > *:not(.handle) {
+  opacity: 1;
+  flex: none;
+  max-width: 500px;
+}
+
+/* Scoped to .size-anim (grab-to-collapse only) so releasing — which drops
+   .size-anim immediately — snaps children back with no leftover animation. */
+#toolbar.size-anim > *:not(.handle) {
+  transition: opacity 0.15s ease, max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    margin 0.28s cubic-bezier(0.4, 0, 0.2, 1), padding 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Collapsing every sibling's own layout width (not just its opacity) keeps
+   the handle — the only element left with any width — pinned at the start
+   of the row, so the visible square always frames it instead of centering
+   on whatever the (still full-size) row's midpoint happens to be. */
+#toolbar.collapsed > *:not(.handle) {
+  opacity: 0;
+  max-width: 0;
+  /* Flex items default to min-width:auto, refusing to shrink past their
+     content's natural size no matter what max-width says — without this
+     override they kept their full layout width while merely invisible,
+     which threw off centering (and everything else) on the collapsed box. */
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border-width: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
 
 #toolbar .sep {

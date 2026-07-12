@@ -492,19 +492,16 @@
     localStorage.setItem(DOCK_KEY, dockClass);
   }
 
+  const COLLAPSE_SIZE = 46;
+
   let dragState = null;
 
   dragHandle.addEventListener('pointerdown', (e) => {
     e.preventDefault();
 
-    // Undock (and drop the dock-specific transform/anchor) *before*
-    // measuring for the drag. A vertical dock (left/right) is much
-    // narrower than the horizontal drag shape the toolbar snaps back to
-    // the instant its dock-* class is removed — measuring beforehand
-    // captured the wrong (narrow) width/offset, so the toolbar's position
-    // during the drag no longer matched the cursor and it would appear to
-    // stick near the old edge. Pin the toolbar at its current on-screen
-    // spot first so this re-flow doesn't jump, then measure fresh.
+    // Pin the toolbar at its current on-screen spot (in viewport pixels,
+    // regardless of whether that came from left/right/transform anchoring)
+    // before dropping its dock class, so undocking never causes a jump.
     const oldRect = toolbar.getBoundingClientRect();
     toolbar.classList.add('dragging');
     toolbar.classList.remove('dock-top', 'dock-bottom', 'dock-left', 'dock-right');
@@ -514,12 +511,23 @@
     toolbar.style.right = 'auto';
     toolbar.style.bottom = 'auto';
 
-    const rect = toolbar.getBoundingClientRect();
+    // Animate the toolbar shrinking down to a small square holding just the
+    // handle, so only that (small, consistently-sized) square needs to be
+    // dragged around — this also sidesteps any width/height mismatch
+    // between the vertical (narrow) and horizontal (wide) dock shapes.
+    toolbar.style.width = oldRect.width + 'px';
+    toolbar.style.height = oldRect.height + 'px';
+    toolbar.classList.add('size-anim');
+    toolbar.offsetHeight; // reflow: lock in the starting size before animating
+    toolbar.classList.add('collapsed');
+    toolbar.style.width = COLLAPSE_SIZE + 'px';
+    toolbar.style.height = COLLAPSE_SIZE + 'px';
+
     dragState = {
-      offsetX: e.clientX - rect.left,
-      offsetY: e.clientY - rect.top,
-      width: rect.width,
-      height: rect.height,
+      offsetX: COLLAPSE_SIZE / 2,
+      offsetY: COLLAPSE_SIZE / 2,
+      width: COLLAPSE_SIZE,
+      height: COLLAPSE_SIZE,
       pointerX: e.clientX,
       pointerY: e.clientY
     };
@@ -554,14 +562,22 @@
     toolbar.style.bottom = 'auto';
   });
 
+  // Releasing snaps the toolbar back to full size instantly — only the
+  // collapse (on grab) is animated; animating the expand too made the
+  // release feel sluggish/unpredictable.
+  function expandToolbarToDock(dockClass) {
+    setDock(dockClass);
+    toolbar.classList.remove('dragging', 'collapsed', 'size-anim');
+    toolbar.style.width = '';
+    toolbar.style.height = '';
+  }
+
   function endDrag() {
     if (!dragState) return;
-    toolbar.classList.remove('dragging');
 
     // Decide the target edge from where the pointer actually is, not from
-    // the toolbar's own (wide, still-horizontal) bounding box — otherwise
-    // the box's own width/height makes its center structurally unable to
-    // get close to the left/right edges, biasing the result toward top/bottom.
+    // the toolbar's own bounding box — it's a small fixed square during the
+    // drag now, but using the cursor position keeps this correct regardless.
     const px = Math.min(window.innerWidth, Math.max(0, dragState.pointerX));
     const py = Math.min(window.innerHeight, Math.max(0, dragState.pointerY));
 
@@ -577,7 +593,7 @@
     else if (min === distRight) dock = 'dock-right';
     else dock = 'dock-top';
 
-    setDock(dock);
+    expandToolbarToDock(dock);
     dragState = null;
   }
 
