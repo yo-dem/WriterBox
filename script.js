@@ -6,14 +6,63 @@
   const saveIndicator = document.getElementById('save-indicator');
   const dragHandle = document.getElementById('drag-handle');
 
+  const settingsOverlay = document.getElementById('settings-overlay');
+  const settingsClose = document.getElementById('settings-close');
+  const settingsReset = document.getElementById('settings-reset');
+  const widthOptions = document.getElementById('width-options');
+  const fontFamilyOptions = document.getElementById('font-family-options');
+  const fontSizeRange = document.getElementById('font-size-range');
+  const fontSizeValue = document.getElementById('font-size-value');
+  const lineHeightRange = document.getElementById('line-height-range');
+  const lineHeightValue = document.getElementById('line-height-value');
+  const paraSpacingRange = document.getElementById('para-spacing-range');
+  const paraSpacingValue = document.getElementById('para-spacing-value');
+
+  const lockIndicator = document.getElementById('lock-indicator');
+  const lockOverlay = document.getElementById('lock-overlay');
+  const lockClose = document.getElementById('lock-close');
+  const lockForm = document.getElementById('lock-form');
+  const lockUsername = document.getElementById('lock-username');
+  const lockPassword = document.getElementById('lock-password');
+  const lockError = document.getElementById('lock-error');
+  const iconLockClosed = document.getElementById('icon-lock-closed');
+  const iconLockOpen = document.getElementById('icon-lock-open');
+  const btnBold = document.getElementById('btn-bold');
+  const btnItalic = document.getElementById('btn-italic');
+  const btnAlign = document.getElementById('btn-align');
+
   const STORAGE_KEY = 'writerbox.content';
   const THEME_KEY = 'writerbox.theme';
   const FONT_KEY = 'writerbox.fontsize';
+  const FONT_FAMILY_KEY = 'writerbox.fontfamily';
   const DOCK_KEY = 'writerbox.dock';
+  const WIDTH_KEY = 'writerbox.width';
+  const LINE_HEIGHT_KEY = 'writerbox.lineheight';
+  const PARA_SPACING_KEY = 'writerbox.paraspacing';
+  const LOCK_KEY = 'writerbox.locked';
+
+  const AUTH_USERS = { admin: 'admin' };
+
+  let isLocked = false;
 
   const FONT_MIN = 13;
   const FONT_MAX = 34;
   const FONT_STEP = 2;
+  const FONT_DEFAULT = 19;
+
+  const FONT_FAMILY_PRESETS = {
+    serif: '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif',
+    sans: '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    mono: 'ui-monospace, "Cascadia Mono", "Courier New", monospace'
+  };
+
+  const WIDTH_PRESETS = { small: '52ch', medium: '70ch', large: '92ch' };
+  const LINE_HEIGHT_MIN = 1.2;
+  const LINE_HEIGHT_MAX = 2.4;
+  const LINE_HEIGHT_DEFAULT = 1.8;
+  const PARA_SPACING_MIN = 0;
+  const PARA_SPACING_MAX = 2.5;
+  const PARA_SPACING_DEFAULT = 1;
 
   const TAB_SIZE = 6;
 
@@ -36,11 +85,25 @@
       (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     setTheme(savedTheme);
 
+    const savedFontFamily = localStorage.getItem(FONT_FAMILY_KEY) || 'serif';
+    setFontFamily(savedFontFamily);
+
     const savedFont = parseInt(localStorage.getItem(FONT_KEY), 10);
-    setFontSize(Number.isFinite(savedFont) ? savedFont : 19);
+    setFontSize(Number.isFinite(savedFont) ? savedFont : FONT_DEFAULT);
+
+    const savedWidth = localStorage.getItem(WIDTH_KEY) || 'medium';
+    setEditorWidth(savedWidth);
+
+    const savedLineHeight = parseFloat(localStorage.getItem(LINE_HEIGHT_KEY));
+    setLineHeight(Number.isFinite(savedLineHeight) ? savedLineHeight : LINE_HEIGHT_DEFAULT);
+
+    const savedParaSpacing = parseFloat(localStorage.getItem(PARA_SPACING_KEY));
+    setParaSpacing(Number.isFinite(savedParaSpacing) ? savedParaSpacing : PARA_SPACING_DEFAULT);
 
     const savedDock = localStorage.getItem(DOCK_KEY) || 'dock-top';
     setDock(savedDock);
+
+    setLocked(localStorage.getItem(LOCK_KEY) === 'true');
 
     editor.focus();
     updateActiveStates();
@@ -49,12 +112,15 @@
   /* ---------- Autosave ---------- */
 
   let saveTimer = null;
+  function saveNow() {
+    clearTimeout(saveTimer);
+    localStorage.setItem(STORAGE_KEY, editor.innerHTML);
+    flashSaved();
+  }
+
   function scheduleSave() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, editor.innerHTML);
-      flashSaved();
-    }, 400);
+    saveTimer = setTimeout(saveNow, 400);
   }
 
   let flashTimer = null;
@@ -66,13 +132,70 @@
 
   editor.addEventListener('input', scheduleSave);
 
+  /* ---------- Markdown export ---------- */
+
+  function inlineToMarkdown(node) {
+    let result = '';
+    node.childNodes.forEach(child => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        result += child.textContent;
+        return;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) return;
+
+      const tag = child.tagName.toLowerCase();
+      if (tag === 'br') {
+        result += '  \n';
+      } else if (tag === 'b' || tag === 'strong') {
+        const inner = inlineToMarkdown(child);
+        result += inner.trim() ? `**${inner}**` : inner;
+      } else if (tag === 'i' || tag === 'em') {
+        const inner = inlineToMarkdown(child);
+        result += inner.trim() ? `*${inner}*` : inner;
+      } else {
+        result += inlineToMarkdown(child);
+      }
+    });
+    return result;
+  }
+
+  function editorToMarkdown() {
+    return Array.from(editor.children)
+      .map(block => inlineToMarkdown(block))
+      .join('\n\n');
+  }
+
+  function downloadMarkdown() {
+    const firstLine = (editor.textContent.trim().split('\n')[0] || '').trim();
+    const slug = firstLine
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50);
+
+    const blob = new Blob([editorToMarkdown()], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (slug || 'documento') + '.md';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function saveAndDownload() {
+    saveNow();
+    downloadMarkdown();
+  }
+
   /* ---------- Undo / Redo ---------- */
 
   // The browser's native undo stack only records execCommand-driven edits
   // (typing, Bold, Tab-insert) — it knows nothing about the direct DOM
-  // surgery Titolo/Allineamento perform, so relying on it leaves
-  // those actions un-undoable and can desync the native stack entirely.
-  // We keep our own snapshot-based history instead.
+  // surgery Allineamento performs, so relying on it leaves those actions
+  // un-undoable and can desync the native stack entirely. We keep our own
+  // snapshot-based history instead.
 
   let historyTimer = null;
 
@@ -109,6 +232,7 @@
   }
 
   function undo() {
+    if (isLocked) return;
     clearTimeout(historyTimer);
     if (history.length === 0) return;
     // Flush whatever the editor currently holds (e.g. a pending debounced
@@ -120,6 +244,7 @@
   }
 
   function redo() {
+    if (isLocked) return;
     clearTimeout(historyTimer);
     if (historyIndex >= history.length - 1) return;
     historyIndex++;
@@ -150,14 +275,97 @@
     editor.style.setProperty('--editor-font-size', clamped + 'px');
     editor.style.fontSize = clamped + 'px';
     localStorage.setItem(FONT_KEY, String(clamped));
+    fontSizeRange.value = String(clamped);
+    fontSizeValue.textContent = clamped + 'px';
   }
 
   function zoom(delta) {
-    const current = parseInt(getComputedStyle(editor).fontSize, 10) || 19;
+    const current = parseInt(getComputedStyle(editor).fontSize, 10) || FONT_DEFAULT;
     setFontSize(current + delta);
   }
 
-  /* ---------- Block formatting (Titolo / Testo) ---------- */
+  /* ---------- Editor settings (font / width / line-height / paragraph spacing) ---------- */
+
+  function setFontFamily(mode) {
+    const value = FONT_FAMILY_PRESETS[mode] ? mode : 'serif';
+    editor.style.setProperty('--font-editor', FONT_FAMILY_PRESETS[value]);
+    localStorage.setItem(FONT_FAMILY_KEY, value);
+    Array.from(fontFamilyOptions.children).forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.font === value);
+    });
+  }
+
+  function setEditorWidth(mode) {
+    const value = WIDTH_PRESETS[mode] ? mode : 'medium';
+    document.documentElement.style.setProperty('--editor-max-width', WIDTH_PRESETS[value]);
+    localStorage.setItem(WIDTH_KEY, value);
+    Array.from(widthOptions.children).forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.width === value);
+    });
+  }
+
+  function setLineHeight(value) {
+    const clamped = Math.min(LINE_HEIGHT_MAX, Math.max(LINE_HEIGHT_MIN, value));
+    document.documentElement.style.setProperty('--editor-line-height', String(clamped));
+    localStorage.setItem(LINE_HEIGHT_KEY, String(clamped));
+    lineHeightRange.value = String(clamped);
+    lineHeightValue.textContent = clamped.toFixed(1);
+  }
+
+  function setParaSpacing(value) {
+    const clamped = Math.min(PARA_SPACING_MAX, Math.max(PARA_SPACING_MIN, value));
+    document.documentElement.style.setProperty('--editor-para-spacing', clamped + 'em');
+    localStorage.setItem(PARA_SPACING_KEY, String(clamped));
+    paraSpacingRange.value = String(clamped);
+    paraSpacingValue.textContent = clamped.toFixed(1) + 'em';
+  }
+
+  function resetSettings() {
+    setFontFamily('serif');
+    setFontSize(FONT_DEFAULT);
+    setEditorWidth('medium');
+    setLineHeight(LINE_HEIGHT_DEFAULT);
+    setParaSpacing(PARA_SPACING_DEFAULT);
+  }
+
+  fontFamilyOptions.addEventListener('click', (e) => {
+    const btn = e.target.closest('.segmented-btn');
+    if (!btn) return;
+    setFontFamily(btn.dataset.font);
+  });
+
+  widthOptions.addEventListener('click', (e) => {
+    const btn = e.target.closest('.segmented-btn');
+    if (!btn) return;
+    setEditorWidth(btn.dataset.width);
+  });
+
+  fontSizeRange.addEventListener('input', () => setFontSize(parseInt(fontSizeRange.value, 10)));
+  lineHeightRange.addEventListener('input', () => setLineHeight(parseFloat(lineHeightRange.value)));
+  paraSpacingRange.addEventListener('input', () => setParaSpacing(parseFloat(paraSpacingRange.value)));
+  settingsReset.addEventListener('click', resetSettings);
+
+  function openSettings() {
+    settingsOverlay.classList.add('show');
+    settingsOverlay.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeSettings() {
+    settingsOverlay.classList.remove('show');
+    settingsOverlay.setAttribute('aria-hidden', 'true');
+  }
+
+  settingsClose.addEventListener('click', closeSettings);
+  settingsOverlay.addEventListener('click', (e) => {
+    if (e.target === settingsOverlay) closeSettings();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (settingsOverlay.classList.contains('show')) closeSettings();
+    if (lockOverlay.classList.contains('show')) closeLockModal();
+  });
+
+  /* ---------- Block formatting ---------- */
 
   function getSelectedBlocks() {
     const sel = window.getSelection();
@@ -174,200 +382,6 @@
     return blocks;
   }
 
-  /* ---------- Title (inline toggle, exact-selection) ---------- */
-
-  // Temporary marker elements let us hold on to the boundaries of a
-  // selection while we mutate the DOM around it (splitting/unwrapping
-  // .wb-title spans), since a live Range's boundaries auto-adjust as
-  // nodes are inserted/removed near them, but a plain (node, offset)
-  // pair does not survive those mutations reliably.
-  function placeBookmarks(range) {
-    const startMarker = document.createElement('span');
-    startMarker.className = 'wb-bookmark';
-    const endMarker = document.createElement('span');
-    endMarker.className = 'wb-bookmark';
-
-    const endPoint = range.cloneRange();
-    endPoint.collapse(false);
-    endPoint.insertNode(endMarker);
-
-    const startPoint = range.cloneRange();
-    startPoint.collapse(true);
-    startPoint.insertNode(startMarker);
-
-    return { startMarker, endMarker };
-  }
-
-  function rangeBetweenBookmarks(startMarker, endMarker) {
-    const range = document.createRange();
-    range.setStartAfter(startMarker);
-    range.setEndBefore(endMarker);
-    return range;
-  }
-
-  // Removes .wb-title formatting from whatever part of `range` currently
-  // has it, splitting each affected span so text outside the range keeps
-  // its title formatting untouched.
-  function clearTitleInRange(range) {
-    const spans = Array.from(editor.querySelectorAll('.wb-title'))
-      .filter(span => range.intersectsNode(span));
-
-    spans.forEach(span => {
-      const spanRange = document.createRange();
-      spanRange.selectNodeContents(span);
-
-      const startsBeforeSpan = range.compareBoundaryPoints(Range.START_TO_START, spanRange) <= 0;
-      const endsAfterSpan = range.compareBoundaryPoints(Range.END_TO_END, spanRange) >= 0;
-
-      const overlapStart = startsBeforeSpan
-        ? { node: spanRange.startContainer, offset: spanRange.startOffset }
-        : { node: range.startContainer, offset: range.startOffset };
-      const overlapEnd = endsAfterSpan
-        ? { node: spanRange.endContainer, offset: spanRange.endOffset }
-        : { node: range.endContainer, offset: range.endOffset };
-
-      const beforeRange = document.createRange();
-      beforeRange.setStart(spanRange.startContainer, spanRange.startOffset);
-      beforeRange.setEnd(overlapStart.node, overlapStart.offset);
-
-      const overlapRange = document.createRange();
-      overlapRange.setStart(overlapStart.node, overlapStart.offset);
-      overlapRange.setEnd(overlapEnd.node, overlapEnd.offset);
-
-      const afterRange = document.createRange();
-      afterRange.setStart(overlapEnd.node, overlapEnd.offset);
-      afterRange.setEnd(spanRange.endContainer, spanRange.endOffset);
-
-      // Extract right-to-left: extracting a later range never invalidates
-      // the (node, offset) boundaries of an earlier, still-pending range.
-      const afterFrag = afterRange.extractContents();
-      const overlapFrag = overlapRange.extractContents();
-      const beforeFrag = beforeRange.extractContents();
-
-      const replacement = [];
-      if (beforeFrag.textContent.length > 0) {
-        const beforeSpan = document.createElement('span');
-        beforeSpan.className = 'wb-title';
-        beforeSpan.appendChild(beforeFrag);
-        replacement.push(beforeSpan);
-      }
-      replacement.push(...Array.from(overlapFrag.childNodes));
-      if (afterFrag.textContent.length > 0) {
-        const afterSpan = document.createElement('span');
-        afterSpan.className = 'wb-title';
-        afterSpan.appendChild(afterFrag);
-        replacement.push(afterSpan);
-      }
-      span.replaceWith(...replacement);
-    });
-  }
-
-  // Clamps `range` to the portion that falls inside `block` (a top-level
-  // #editor child), so callers never build a range that crosses out of it.
-  function clampRangeToBlock(range, block) {
-    const blockRange = document.createRange();
-    blockRange.selectNodeContents(block);
-
-    const start = range.compareBoundaryPoints(Range.START_TO_START, blockRange) <= 0
-      ? { node: blockRange.startContainer, offset: blockRange.startOffset }
-      : { node: range.startContainer, offset: range.startOffset };
-    const end = range.compareBoundaryPoints(Range.END_TO_END, blockRange) >= 0
-      ? { node: blockRange.endContainer, offset: blockRange.endOffset }
-      : { node: range.endContainer, offset: range.endOffset };
-
-    const clamped = document.createRange();
-    clamped.setStart(start.node, start.offset);
-    clamped.setEnd(end.node, end.offset);
-    return clamped;
-  }
-
-  function wrapRangeInTitle(range) {
-    // A <span> can only legally hold inline content — if the selection
-    // spans multiple paragraphs, wrapping it whole would nest block
-    // elements (<p>) inside an inline one, producing broken HTML that
-    // browsers render unpredictably (stray line breaks). Give each
-    // paragraph in the selection its own title span instead.
-    const blocks = Array.from(editor.children).filter(el => range.intersectsNode(el));
-
-    if (blocks.length <= 1) {
-      const span = document.createElement('span');
-      span.className = 'wb-title';
-      span.appendChild(range.extractContents());
-      range.insertNode(span);
-      return;
-    }
-
-    // Right-to-left so extracting from a later block never invalidates
-    // the (node, offset) boundaries of an earlier, still-pending block.
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      const blockRange = clampRangeToBlock(range, blocks[i]);
-      if (blockRange.collapsed) continue;
-      const span = document.createElement('span');
-      span.className = 'wb-title';
-      span.appendChild(blockRange.extractContents());
-      blockRange.insertNode(span);
-    }
-  }
-
-  // True only if every character of text within `range` already sits
-  // inside a .wb-title span.
-  function isRangeFullyTitled(range) {
-    const root = range.commonAncestorContainer;
-
-    // A TreeWalker never visits its own root, only descendants — when the
-    // whole selection sits inside one text node (the common case), the
-    // walker below would find nothing. Handle that directly.
-    if (root.nodeType === Node.TEXT_NODE) {
-      return root.textContent.length > 0 && !!root.parentElement && !!root.parentElement.closest('.wb-title');
-    }
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        return (range.intersectsNode(node) && node.textContent.length > 0)
-          ? NodeFilter.FILTER_ACCEPT
-          : NodeFilter.FILTER_REJECT;
-      }
-    });
-    let foundText = false;
-    let node;
-    while ((node = walker.nextNode())) {
-      foundText = true;
-      if (!node.parentElement || !node.parentElement.closest('.wb-title')) return false;
-    }
-    return foundText;
-  }
-
-  function withBookmarkedSelection(mutate) {
-    const sel = window.getSelection();
-    if (!sel.rangeCount || sel.isCollapsed) return;
-    const original = sel.getRangeAt(0);
-    if (!editor.contains(original.commonAncestorContainer)) return;
-
-    const { startMarker, endMarker } = placeBookmarks(original);
-    mutate(() => rangeBetweenBookmarks(startMarker, endMarker));
-
-    const finalRange = rangeBetweenBookmarks(startMarker, endMarker);
-    startMarker.remove();
-    endMarker.remove();
-    sel.removeAllRanges();
-    sel.addRange(finalRange);
-
-    scheduleSave();
-    pushHistory();
-    updateActiveStates();
-  }
-
-  function toggleTitle() {
-    const sel = window.getSelection();
-    if (!sel.rangeCount || sel.isCollapsed) return;
-    const makeTitle = !isRangeFullyTitled(sel.getRangeAt(0));
-
-    withBookmarkedSelection((getRange) => {
-      clearTitleInRange(getRange());
-      if (makeTitle) wrapRangeInTitle(getRange());
-    });
-  }
-
   /* ---------- Alignment ---------- */
 
   const ALIGN_ORDER = ['left', 'center', 'right', 'justify'];
@@ -379,6 +393,7 @@
   }
 
   function cycleAlign() {
+    if (isLocked) return;
     editor.focus();
     const blocks = getSelectedBlocks();
     if (blocks.length === 0) return;
@@ -393,9 +408,10 @@
     updateActiveStates();
   }
 
-  /* ---------- Bold / Italic / Strikethrough ---------- */
+  /* ---------- Bold / Italic ---------- */
 
   function toggleBold() {
+    if (isLocked) return;
     editor.focus();
     document.execCommand('bold');
     scheduleSave();
@@ -404,16 +420,9 @@
   }
 
   function toggleItalic() {
+    if (isLocked) return;
     editor.focus();
     document.execCommand('italic');
-    scheduleSave();
-    pushHistory();
-    updateActiveStates();
-  }
-
-  function toggleStrike() {
-    editor.focus();
-    document.execCommand('strikeThrough');
     scheduleSave();
     pushHistory();
     updateActiveStates();
@@ -424,23 +433,14 @@
   function updateActiveStates() {
     const btnBold = document.getElementById('btn-bold');
     const btnItalic = document.getElementById('btn-italic');
-    const btnStrike = document.getElementById('btn-strike');
-    const btnTitle = document.getElementById('btn-title');
 
-    let bold = false, italic = false, strike = false;
+    let bold = false, italic = false;
     try {
       bold = document.queryCommandState('bold');
       italic = document.queryCommandState('italic');
-      strike = document.queryCommandState('strikeThrough');
     } catch (e) { /* noop */ }
     btnBold.classList.toggle('active', bold);
     btnItalic.classList.toggle('active', italic);
-    btnStrike.classList.toggle('active', strike);
-
-    const sel = window.getSelection();
-    const hasSelection = sel.rangeCount > 0 && !sel.isCollapsed && editor.contains(sel.anchorNode);
-    btnTitle.disabled = !hasSelection;
-    btnTitle.classList.toggle('active', hasSelection && isRangeFullyTitled(sel.getRangeAt(0)));
 
     const blocks = getSelectedBlocks();
     if (blocks.length > 0) {
@@ -452,6 +452,62 @@
     if (document.activeElement === editor || editor.contains(document.getSelection().anchorNode)) {
       updateActiveStates();
     }
+  });
+
+  /* ---------- Read-only lock ---------- */
+
+  function setLocked(locked) {
+    isLocked = locked;
+    editor.contentEditable = locked ? 'false' : 'true';
+    iconLockClosed.style.display = locked ? 'block' : 'none';
+    iconLockOpen.style.display = locked ? 'none' : 'block';
+    btnBold.disabled = locked;
+    btnItalic.disabled = locked;
+    btnAlign.disabled = locked;
+    lockIndicator.classList.toggle('show', locked);
+    localStorage.setItem(LOCK_KEY, locked ? 'true' : 'false');
+  }
+
+  function openLockModal() {
+    lockForm.reset();
+    lockError.textContent = '';
+    lockOverlay.classList.add('show');
+    lockOverlay.setAttribute('aria-hidden', 'false');
+    lockUsername.focus();
+  }
+
+  function closeLockModal() {
+    lockOverlay.classList.remove('show');
+    lockOverlay.setAttribute('aria-hidden', 'true');
+  }
+
+  function toggleLock() {
+    if (isLocked) {
+      openLockModal();
+    } else {
+      setLocked(true);
+    }
+  }
+
+  lockForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const username = lockUsername.value.trim();
+    const password = lockPassword.value;
+
+    if (AUTH_USERS[username] === password) {
+      setLocked(false);
+      closeLockModal();
+      editor.focus();
+    } else {
+      lockError.textContent = 'Nome utente o password errati.';
+      lockPassword.value = '';
+      lockPassword.focus();
+    }
+  });
+
+  lockClose.addEventListener('click', closeLockModal);
+  lockOverlay.addEventListener('click', (e) => {
+    if (e.target === lockOverlay) closeLockModal();
   });
 
   /* ---------- Toolbar actions ---------- */
@@ -468,14 +524,15 @@
     const btn = e.target.closest('button.tool');
     if (!btn) return;
     switch (btn.dataset.cmd) {
-      case 'title': toggleTitle(); break;
       case 'bold': toggleBold(); break;
       case 'italic': toggleItalic(); break;
-      case 'strike': toggleStrike(); break;
       case 'align': cycleAlign(); break;
       case 'zoom-in': zoom(FONT_STEP); break;
       case 'zoom-out': zoom(-FONT_STEP); break;
+      case 'zoom-reset': setFontSize(FONT_DEFAULT); break;
       case 'theme': toggleTheme(); break;
+      case 'lock-toggle': toggleLock(); break;
+      case 'settings': openSettings(); break;
     }
   });
 
@@ -606,12 +663,14 @@
   /* ---------- Tab indent ---------- */
 
   function insertIndent() {
+    if (isLocked) return;
     document.execCommand('insertText', false, '\xa0'.repeat(TAB_SIZE));
     scheduleSave();
     pushHistory();
   }
 
   function outdentAtCursor() {
+    if (isLocked) return;
     const sel = window.getSelection();
     if (!sel.rangeCount || !sel.isCollapsed) return;
     const range = sel.getRangeAt(0);
@@ -652,6 +711,17 @@
   }
 
   /* ---------- Keyboard shortcuts ---------- */
+
+  // Registered on window (capture phase) rather than the editor, so
+  // Ctrl/Cmd+S is caught and the browser's "Save Page" dialog is
+  // suppressed no matter where focus currently is.
+  window.addEventListener('keydown', (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      saveAndDownload();
+    }
+  }, true);
 
   editor.addEventListener('keydown', (e) => {
     // Tab would otherwise move focus out of the editor instead of typing.
